@@ -1,23 +1,45 @@
+import { db } from '../db';
+import { chatMessagesTable, canvasTable } from '../db/schema';
 import { type CreateChatMessageInput, type ChatMessage } from '../schema';
+import { eq } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 
-/**
- * Creates a new chat message for AI interactions
- * This handler will store user prompts and AI responses related to canvas modifications
- */
-export async function createChatMessage(input: CreateChatMessageInput): Promise<ChatMessage> {
-    // This is a placeholder implementation! Real code should be implemented here.
-    // The goal of this handler is to create and persist a new chat message
-    // for tracking AI interactions and their effects on canvas elements.
-    
-    const messageId = `message_${Date.now()}`; // Placeholder ID generation
-    
-    return Promise.resolve({
-        id: messageId,
+export const createChatMessage = async (input: CreateChatMessageInput): Promise<ChatMessage> => {
+  try {
+    // Verify canvas exists first
+    const canvas = await db.select()
+      .from(canvasTable)
+      .where(eq(canvasTable.id, input.canvasId))
+      .limit(1)
+      .execute();
+
+    if (canvas.length === 0) {
+      throw new Error(`Canvas with id ${input.canvasId} not found`);
+    }
+
+    // Insert chat message record
+    const result = await db.insert(chatMessagesTable)
+      .values({
+        id: randomUUID(),
         canvasId: input.canvasId,
         role: input.role,
         content: input.content,
-        timestamp: new Date(),
-        elementsCreated: input.elementsCreated || undefined,
-        elementsModified: input.elementsModified || undefined
-    } as ChatMessage);
-}
+        elementsCreated: input.elementsCreated || null,
+        elementsModified: input.elementsModified || null
+      })
+      .returning()
+      .execute();
+
+    const chatMessage = result[0];
+    
+    // Convert null to undefined to match schema type
+    return {
+      ...chatMessage,
+      elementsCreated: chatMessage.elementsCreated ? (chatMessage.elementsCreated as string[]) : undefined,
+      elementsModified: chatMessage.elementsModified ? (chatMessage.elementsModified as string[]) : undefined
+    };
+  } catch (error) {
+    console.error('Chat message creation failed:', error);
+    throw error;
+  }
+};
